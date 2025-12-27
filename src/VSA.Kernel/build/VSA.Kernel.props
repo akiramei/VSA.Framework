@@ -1,0 +1,13 @@
+<Project>
+  <Target Name="CopyVSAKernelSkills" AfterTargets="Build">
+    <PropertyGroup>
+      <VSASkillsSource>$(MSBuildThisFileDirectory)..\contentFiles\any\any\.claude\skills\</VSASkillsSource>
+      <VSASkillsTarget>$(MSBuildProjectDirectory)\.claude\skills\</VSASkillsTarget>
+    </PropertyGroup>
+    <MakeDir Directories="$(VSASkillsTarget)" Condition="Exists('$(VSASkillsSource)')" />
+    <Copy SourceFiles="$(VSASkillsSource)vsa-kernel.md"
+          DestinationFolder="$(VSASkillsTarget)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(VSASkillsSource)vsa-kernel.md')" />
+  </Target>
+</Project>

@@ -1,0 +1,13 @@
+<Project>
+  <Target Name="CopyVSAApplicationSkills" AfterTargets="Build">
+    <PropertyGroup>
+      <VSASkillsSource>$(MSBuildThisFileDirectory)..\contentFiles\any\any\.claude\skills\</VSASkillsSource>
+      <VSASkillsTarget>$(MSBuildProjectDirectory)\.claude\skills\</VSASkillsTarget>
+    </PropertyGroup>
+    <MakeDir Directories="$(VSASkillsTarget)" Condition="Exists('$(VSASkillsSource)')" />
+    <Copy SourceFiles="$(VSASkillsSource)vsa-application.md"
+          DestinationFolder="$(VSASkillsTarget)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(VSASkillsSource)vsa-application.md')" />
+  </Target>
+</Project>

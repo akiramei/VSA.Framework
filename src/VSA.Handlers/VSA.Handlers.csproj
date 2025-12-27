@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- NuGet Package Metadata -->
+    <PackageId>VSA.Handlers</PackageId>
+    <Version>1.3.0</Version>
+    <Authors>akira</Authors>
+    <Description>VSA Framework - 汎用ハンドラー（CreateEntityHandler, UpdateEntityHandler, DeleteEntityHandler, GetByIdQueryHandler, GetListQueryHandler）</Description>
+    <PackageTags>MediatR;GenericHandler;CRUD;Repository</PackageTags>
+    <ContentTargetFolders>contentFiles</ContentTargetFolders>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VSA.Application\VSA.Application.csproj" />
+    <ProjectReference Include="..\VSA.Kernel\VSA.Kernel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include=".claude\skills\**\*">
+      <Pack>true</Pack>
+      <PackagePath>contentFiles\any\any\.claude\skills</PackagePath>
+      <PackageCopyToOutput>false</PackageCopyToOutput>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Content>
+    <None Include="build\**\*">
+      <Pack>true</Pack>
+      <PackagePath>build</PackagePath>
+    </None>
+  </ItemGroup>
+
+</Project>

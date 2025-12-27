@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- NuGet Package Metadata -->
+    <PackageId>VSA.Kernel</PackageId>
+    <Version>1.3.0</Version>
+    <Authors>akira</Authors>
+    <Description>VSA Framework - DDD基盤（Entity, AggregateRoot, ValueObject, DomainEvent, DomainException, ITypedId, BoundaryDecision）</Description>
+    <PackageTags>DDD;Domain;Entity;AggregateRoot;ValueObject;TypedId;BoundaryDecision</PackageTags>
+    <ContentTargetFolders>contentFiles</ContentTargetFolders>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include=".claude\skills\**\*">
+      <Pack>true</Pack>
+      <PackagePath>contentFiles\any\any\.claude\skills</PackagePath>
+      <PackageCopyToOutput>false</PackageCopyToOutput>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Content>
+    <None Include="build\**\*">
+      <Pack>true</Pack>
+      <PackagePath>build</PackagePath>
+    </None>
+  </ItemGroup>
+
+</Project>
