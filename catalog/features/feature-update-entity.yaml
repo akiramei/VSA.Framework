@@ -1,0 +1,255 @@
+id: feature-update-entity
+version: 1.1.0
+name: Update Entity Feature Slice
+category: feature-slice
+intent: エンティティの更新機能（楽観的排他制御付き）
+description: |
+  既存エンティティのデータを更新する機能の垂直スライス。
+  VSA.Frameworkの基底クラスを使用して、Command、Handler、Validator、Blazor Component を実装します。
+
+scope: vertical-slice
+layers:
+  - application
+  - ui
+
+ai_selection_hints:
+  trigger_phrases:
+    - "更新機能"
+    - "編集機能"
+    - "変更できるように"
+    - "を更新"
+    - "を編集"
+
+  confidence_keywords:
+    high:    ["更新", "編集", "変更", "修正", "Update", "Edit"]
+    medium:  ["保存", "Save"]
+    low:     ["データ変更"]
+
+  typical_requests:
+    - "商品を編集できるようにしてください"
+    - "ユーザー情報を更新する機能を追加して"
+    - "タスクのステータスを変更できるようにしたい"
+
+dependencies:
+  patterns:
+    - validation-behavior
+    - transaction-behavior
+  nuget:
+    - name: "VSA.Kernel"
+      version: "1.3.0"
+      purpose: "AggregateRoot, ITypedId, BoundaryDecision"
+    - name: "VSA.Application"
+      version: "1.3.0"
+      purpose: "ICommand, Result<T>"
+    - name: "VSA.Infrastructure"
+      version: "1.3.0"
+      purpose: "Pipeline Behaviors"
+    - name: "VSA.Handlers"
+      version: "1.3.0"
+      purpose: "UpdateEntityHandler<T>"
+    - name: "VSA.Blazor"
+      version: "1.3.0"
+      purpose: "FormPageBase<T>"
+    - name: "FluentValidation"
+      version: "^12.0.0"
+
+file_structure: |
+  src/Application/Features/Update{Entity}/
+  ├── Update{Entity}Command.cs        # Command (VSA.Application.ICommand<T>)
+  ├── Update{Entity}Handler.cs        # Handler (VSA.Handlers.UpdateEntityHandler<T>)
+  └── Update{Entity}Validator.cs      # FluentValidation
+
+  src/UI.Blazor/Features/Update{Entity}/
+  └── Edit{Entity}.razor              # Blazor Page (VSA.Blazor.FormPageBase<T>)
+
+implementation:
+  # ===== Application Layer =====
+  command:
+    file_path: "src/Application/Features/Update{Entity}/Update{Entity}Command.cs"
+    template: |
+      using VSA.Application;
+      using VSA.Application.Interfaces;
+      using Domain.{BoundedContext};
+
+      namespace Application.Features.Update{Entity};
+
+      /// <summary>
+      /// {Entity}更新Command
+      /// </summary>
+      public sealed record Update{Entity}Command(
+          {Entity}Id {Entity}Id,
+          string Name,
+          string? Description
+      ) : ICommand<Result<Unit>>;
+
+  handler:
+    file_path: "src/Application/Features/Update{Entity}/Update{Entity}Handler.cs"
+    template: |
+      using Microsoft.Extensions.Logging;
+      using VSA.Application;
+      using VSA.Handlers.Abstractions;
+      using VSA.Handlers.Commands;
+      using Domain.{BoundedContext};
+
+      namespace Application.Features.Update{Entity};
+
+      /// <summary>
+      /// {Entity}更新Handler（VSA.Handlers.UpdateEntityHandler を継承）
+      /// </summary>
+      public sealed class Update{Entity}Handler
+          : UpdateEntityHandler<Update{Entity}Command, {Entity}, {Entity}Id>
+      {
+          public Update{Entity}Handler(
+              IRepository<{Entity}, {Entity}Id> repository,
+              ILogger<Update{Entity}Handler> logger)
+              : base(repository, logger)
+          {
+          }
+
+          protected override {Entity}Id GetEntityId(Update{Entity}Command command)
+          {
+              return command.{Entity}Id;
+          }
+
+          protected override Result UpdateEntity({Entity} entity, Update{Entity}Command command)
+          {
+              // Boundaryメソッドで更新可能かチェック
+              var decision = entity.CanUpdate();
+              if (!decision.IsAllowed)
+                  return Result.Fail(decision.Reason);
+
+              // エンティティを更新
+              entity.Update(command.Name, command.Description);
+              return Result.Success();
+          }
+      }
+
+  validator:
+    file_path: "src/Application/Features/Update{Entity}/Update{Entity}Validator.cs"
+    template: |
+      using FluentValidation;
+
+      namespace Application.Features.Update{Entity};
+
+      /// <summary>
+      /// {Entity}更新Validator
+      /// </summary>
+      public sealed class Update{Entity}Validator : AbstractValidator<Update{Entity}Command>
+      {
+          public Update{Entity}Validator()
+          {
+              RuleFor(x => x.{Entity}Id)
+                  .Must(id => id.Value != Guid.Empty)
+                  .WithMessage("{Entity}IDは必須です");
+
+              RuleFor(x => x.Name)
+                  .NotEmpty().WithMessage("{Entity}名は必須です")
+                  .MaximumLength(200).WithMessage("{Entity}名は200文字以内で入力してください");
+
+              RuleFor(x => x.Description)
+                  .MaximumLength(2000).WithMessage("説明は2000文字以内で入力してください");
+          }
+      }
+
+  # ===== UI Layer =====
+  blazor_page:
+    file_path: "src/UI.Blazor/Features/Update{Entity}/Edit{Entity}.razor"
+    template: |
+      @page "/{entity}s/{id:guid}/edit"
+      @inherits FormPageBase<Update{Entity}Command, Unit>
+
+      <h1>{Entity}編集</h1>
+
+      @if (Loading)
+      {
+          <p>読み込み中...</p>
+      }
+      else
+      {
+          <EditForm Model="@Command" OnValidSubmit="@SubmitAsync">
+              <DataAnnotationsValidator />
+              <ValidationSummary />
+
+              <div>
+                  <label>名前</label>
+                  <InputText @bind-Value="Command.Name" />
+              </div>
+
+              <div>
+                  <label>説明</label>
+                  <InputTextArea @bind-Value="Command.Description" />
+              </div>
+
+              <button type="submit" disabled="@Loading">更新</button>
+          </EditForm>
+      }
+
+      @if (Error is not null)
+      {
+          <p style="color: red;">@Error</p>
+      }
+
+      @code {
+          [Parameter]
+          public Guid Id { get; set; }
+
+          private Update{Entity}Command Command { get; set; } = default!;
+
+          protected override async Task OnInitializedAsync()
+          {
+              // 既存データを読み込み
+              // Command = new Update{Entity}Command(...);
+          }
+
+          protected override Update{Entity}Command CreateCommand() => Command;
+
+          protected override string? SuccessMessage => "{Entity}を更新しました";
+          protected override string? SuccessNavigateTo => "/{entity}s";
+      }
+
+ai_guidance:
+  when_to_use:
+    - "既存エンティティの更新機能を追加する場合"
+    - "編集フォームを実装する場合"
+    - "VSA.Frameworkの汎用ハンドラーを活用したい場合"
+
+  when_not_to_use:
+    - "新規作成 → feature-create-entity を使用"
+    - "削除機能 → feature-delete-entity を使用"
+    - "検索機能 → feature-search-entity を使用"
+
+  implementation_steps:
+    - step: 1
+      description: "Domain層にUpdateメソッドとCanUpdateメソッドを追加"
+      files: ["{Entity}.cs"]
+
+    - step: 2
+      description: "Application層にCommand + Handler + Validatorを作成"
+      files: ["Update{Entity}Command.cs", "Update{Entity}Handler.cs", "Update{Entity}Validator.cs"]
+
+    - step: 3
+      description: "UI層にBlazor Pageを作成"
+      files: ["Edit{Entity}.razor"]
+
+  common_mistakes:
+    - mistake: "VSA.Handlersの基底クラスを使わずに毎回フルスクラッチで書く"
+      solution: "UpdateEntityHandler<T>を継承して、UpdateEntity()メソッドのみオーバーライド"
+
+    - mistake: "Handler内でSaveChangesAsync()を呼ぶ"
+      solution: "TransactionBehaviorが自動でSaveChangesAsyncを呼ぶため不要"
+
+    - mistake: "Boundaryメソッド（CanUpdate）を実装しない"
+      solution: "Entity.CanUpdate()でBoundaryDecisionを返し、更新可否を判定"
+
+changelog:
+  - version: 1.1.0
+    date: 2025-12-28
+    changes:
+      - "VSA.Framework統合"
+      - "NuGetパッケージ参照に変更"
+      - "汎用ハンドラー使用を推奨"
+
+  - version: 1.0.0
+    date: 2025-11-19
+    changes:
+      - "初版リリース"

@@ -1,0 +1,221 @@
+id: boundary-pattern
+version: 2.1.0
+name: Boundary Pattern (操作可否判定)
+category: domain-pattern
+intent: 操作可否判定をドメイン層に配置し、UIから業務ルールを分離
+
+description: |
+  Boundaryパターンにより、「誰が・何に対して・何をできるか」の判定ロジックを
+  ドメイン層に集約します。VSA.KernelのBoundaryDecisionを使用します。
+
+  【重要】業務ロジックはEntityが持つ
+  BoundaryServiceは「データ取得」と「Entityへの委譲」のみを行う。
+  業務ルールの判定（if文による状態チェック等）はEntity.CanXxx()メソッドに実装。
+
+nuget_package: VSA.Kernel
+
+scope: domain-pattern
+layers:
+  - domain
+
+ai_selection_hints:
+  trigger_phrases:
+    - "操作可否"
+    - "ボタン活性"
+    - "できるかどうか"
+    - "CanCreate"
+    - "CanUpdate"
+    - "CanDelete"
+
+  confidence_keywords:
+    high:    ["操作可否", "CanCreate", "CanUpdate", "CanDelete", "IsAllowed"]
+    medium:  ["権限", "活性", "非活性", "disabled"]
+    low:     ["ボタン", "表示制御"]
+
+  typical_requests:
+    - "タスクのステータスに応じて操作ボタンを制御したい"
+    - "承認権限がある人だけ承認ボタンを有効にしたい"
+    - "削除可能かどうかをチェックしたい"
+
+implementation:
+  # ===== BoundaryDecision（VSA.Kernelで提供） =====
+  boundary_decision:
+    file_path: "VSA.Kernel内で提供（自分で実装不要）"
+    namespace: "VSA.Kernel"
+    template: |
+      // VSA.Kernel.BoundaryDecision
+      //
+      // 操作可否の判定結果を表す
+      // BoundaryDecision.Allow(): 許可
+      // BoundaryDecision.Deny(reason): 拒否（理由付き）
+
+  # ===== Entity の CanXxx() メソッド =====
+  entity_can_methods:
+    file_path: "src/Domain/{BoundedContext}/{Entity}.cs"
+    template: |
+      using VSA.Kernel;
+
+      namespace Domain.{BoundedContext};
+
+      public sealed class {Entity} : AggregateRoot<{Entity}Id>
+      {
+          public {Entity}Status Status { get; private set; }
+
+          // ================================================================
+          // 業務ルール判定メソッド（BoundaryDecision を返す）
+          // ================================================================
+
+          /// <summary>
+          /// 更新可否を判定
+          /// </summary>
+          public BoundaryDecision CanUpdate()
+          {
+              return Status switch
+              {
+                  {Entity}Status.Draft => BoundaryDecision.Allow(),
+                  {Entity}Status.Completed => BoundaryDecision.Deny("完了済みは更新できません"),
+                  _ => BoundaryDecision.Deny("この状態では更新できません")
+              };
+          }
+
+          /// <summary>
+          /// 削除可否を判定
+          /// </summary>
+          public BoundaryDecision CanDelete()
+          {
+              if (Status == {Entity}Status.Completed)
+                  return BoundaryDecision.Deny("完了済みは削除できません");
+
+              return BoundaryDecision.Allow();
+          }
+
+          /// <summary>
+          /// 完了可否を判定
+          /// </summary>
+          public BoundaryDecision CanComplete()
+          {
+              return Status switch
+              {
+                  {Entity}Status.InProgress => BoundaryDecision.Allow(),
+                  {Entity}Status.Completed => BoundaryDecision.Deny("既に完了しています"),
+                  _ => BoundaryDecision.Deny("進行中でなければ完了できません")
+              };
+          }
+      }
+
+  # ===== Handler での使用 =====
+  usage_handler:
+    file_path: "src/Application/Features/Update{Entity}/Update{Entity}Handler.cs"
+    template: |
+      using VSA.Application;
+      using VSA.Handlers.Commands;
+
+      public sealed class Update{Entity}Handler
+          : UpdateEntityHandler<Update{Entity}Command, {Entity}, {Entity}Id>
+      {
+          protected override Result UpdateEntity({Entity} entity, Update{Entity}Command command)
+          {
+              // Boundaryメソッドで操作可否を判定
+              var decision = entity.CanUpdate();
+              if (!decision.IsAllowed)
+                  return Result.Fail(decision.Reason);
+
+              // ビジネスロジックの実行
+              entity.Update(command.Name, command.Description);
+              return Result.Success();
+          }
+      }
+
+  # ===== UI での使用 =====
+  usage_ui:
+    file_path: "src/UI.Blazor/Features/{Entity}s/{Entity}Detail.razor"
+    template: |
+      @* UIはBoundaryの判定結果を表示するだけ *@
+
+      <button disabled="@(!_canUpdate.IsAllowed)"
+              title="@_canUpdate.Reason"
+              @onclick="UpdateAsync">
+          更新
+      </button>
+
+      <button disabled="@(!_canDelete.IsAllowed)"
+              title="@_canDelete.Reason"
+              @onclick="DeleteAsync">
+          削除
+      </button>
+
+      @code {
+          private BoundaryDecision _canUpdate = BoundaryDecision.Deny("読み込み中");
+          private BoundaryDecision _canDelete = BoundaryDecision.Deny("読み込み中");
+
+          protected override void OnParametersSet()
+          {
+              // Entity.CanXxx() の結果を使用
+              _canUpdate = _entity.CanUpdate();
+              _canDelete = _entity.CanDelete();
+          }
+      }
+
+must_read_checklist:
+  items:
+    - "Entity.CanXxx() は BoundaryDecision を返す"
+    - "Handler は CanXxx() の結果を必ずチェックしてから処理を続行"
+    - "UIはBoundaryの判定結果を表示するだけ（ロジックを持たない）"
+    - "Deny時は必ず理由を付ける（UIでツールチップ表示に使用）"
+
+ai_guidance:
+  when_to_use:
+    - "操作の実行可否がビジネスルールに依存する場合"
+    - "UIが「何ができるか」を知る必要がある場合"
+    - "権限・状態に基づくボタン活性/非活性制御"
+
+  when_not_to_use:
+    - "見た目の制御のみ（色・フォント・レイアウト）→ UI層で完結"
+    - "単純なnullチェック → UIで直接判定"
+    - "認証（ログイン有無）→ ASP.NET Core Identity"
+
+  common_mistakes:
+    - mistake: "UIにビジネスロジックを書く"
+      severity: "critical"
+      solution: "判定ロジックはEntity.CanXxx()に集約。UIはBoundaryの結果を表示するだけ"
+
+    - mistake: "Entityに CanXxx() メソッドがない"
+      severity: "critical"
+      solution: "Entityに業務ルールを判定するCanXxx()メソッドを追加する"
+
+    - mistake: "BoundaryDecisionの理由を省略"
+      severity: "medium"
+      solution: "Deny時は必ず理由を付ける。UIでツールチップ表示やエラーメッセージに使う"
+
+dependencies:
+  nuget:
+    - name: "VSA.Kernel"
+      version: "1.3.0"
+      required: true
+      note: "BoundaryDecisionはVSA.Kernelに含まれます"
+
+related_patterns:
+  - id: domain-state-machine
+    description: "状態遷移の判定に使用"
+
+  - id: feature-update-entity
+    description: "更新時の操作可否判定"
+
+  - id: feature-delete-entity
+    description: "削除時の操作可否判定"
+
+changelog:
+  - version: 2.1.0
+    date: 2025-12-28
+    changes:
+      - "VSA.Framework統合"
+      - "NuGetパッケージ参照に変更"
+
+  - version: 2.0.0
+    date: 2025-11-26
+    changes:
+      - "業務ロジックの配置を明確化: Entity.CanXxx() に集約"
+
+evidence:
+  implementation_file: "VSA.Kernel/BoundaryDecision.cs"
+  skill_file: ".claude/skills/vsa-kernel.md"

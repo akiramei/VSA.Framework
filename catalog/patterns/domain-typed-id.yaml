@@ -1,0 +1,178 @@
+id: domain-typed-id
+version: 1.1.0
+name: Typed ID Value Object Pattern
+category: domain-pattern
+intent: 集約固有の強型付けIDで型安全性を確保し、ID取り違えを防止
+
+description: |
+  Guid をそのまま使用する代わりに、集約ごとに専用のID型を定義。
+  コンパイル時に異なる集約のIDを取り違えることを防止。
+  VSA.KernelのITypedIdインターフェースを実装。
+
+  例: TaskId と UserId は両方 Guid だが、型が異なるため
+  メソッド引数で取り違えるとコンパイルエラーになる。
+
+nuget_package: VSA.Kernel
+
+benefits:
+  - "型安全性: TaskId と UserId の取り違えをコンパイル時に検出"
+  - "意図の明確化: メソッドシグネチャが自己文書化される"
+  - "ファクトリ制御: ID生成ルールを一元管理"
+
+implementation:
+  file_path: "src/Domain/{BoundedContext}/{Entity}Id.cs"
+  template: |
+    using VSA.Kernel;
+
+    namespace Domain.{BoundedContext};
+
+    /// <summary>
+    /// {Entity}ID（型付きID）
+    /// </summary>
+    public readonly record struct {Entity}Id(Guid Value) : ITypedId
+    {
+        /// <summary>
+        /// 新しいIDを生成
+        /// </summary>
+        public static {Entity}Id New() => new(Guid.NewGuid());
+
+        /// <summary>
+        /// 既存のGuidからIDを生成
+        /// </summary>
+        public static {Entity}Id From(Guid value) => new(value);
+    }
+
+  ef_core_configuration: |
+    // Entity Framework Core での設定例
+    public class {Entity}Configuration : IEntityTypeConfiguration<{Entity}>
+    {
+        public void Configure(EntityTypeBuilder<{Entity}> builder)
+        {
+            builder.HasKey(e => e.Id);
+
+            builder.Property(e => e.Id)
+                .HasConversion(
+                    id => id.Value,           // {Entity}Id → Guid
+                    value => {Entity}Id.From(value))  // Guid → {Entity}Id
+                .IsRequired();
+        }
+    }
+
+example_usage: |
+  using VSA.Kernel;
+
+  // 型付きID（ITypedIdを実装）
+  public readonly record struct TaskId(Guid Value) : ITypedId
+  {
+      public static TaskId New() => new(Guid.NewGuid());
+      public static TaskId From(Guid value) => new(value);
+  }
+
+  // 型安全な引数
+  public async Task<Task?> GetTaskForUser(
+      TaskId taskId,   // ← UserId を渡すとコンパイルエラー
+      UserId userId,   // ← TaskId を渡すとコンパイルエラー
+      CancellationToken ct)
+  {
+      var task = await _repository.GetByIdAsync(taskId, ct);
+      if (task?.AssignedUserId != userId)
+          return null;
+      return task;
+  }
+
+  // ファクトリでの新規ID生成
+  public static Task Create(string title, UserId assignedUserId)
+  {
+      return new Task
+      {
+          Id = TaskId.New(),  // 新しいID生成
+          Title = title,
+          AssignedUserId = assignedUserId
+      };
+  }
+
+  // Command から ID 変換
+  public async Task<Result<TaskDto>> Handle(
+      GetTaskByIdQuery query,
+      CancellationToken ct)
+  {
+      var taskId = TaskId.From(query.TaskId);  // Guid → TaskId
+      var task = await _repository.GetByIdAsync(taskId, ct);
+      // ...
+  }
+
+linq_query_notes: |
+  【重要】TypedId の LINQ クエリでの比較
+
+  ❌ 禁止: .Value プロパティでの比較
+  ```csharp
+  // EF Core がSQLに変換できない
+  var task = await _dbContext.Tasks
+      .Where(t => t.Id.Value == requestGuid)  // エラー
+      .FirstOrDefaultAsync();
+  ```
+
+  ✅ 正しい: TypedId インスタンスでの比較
+  ```csharp
+  var taskId = TaskId.From(requestGuid);
+  var task = await _dbContext.Tasks
+      .Where(t => t.Id == taskId)  // OK - HasConversion が適用される
+      .FirstOrDefaultAsync();
+  ```
+
+ai_guidance:
+  when_to_use:
+    - "複数の集約があり、IDの取り違えリスクがある場合"
+    - "メソッドシグネチャを自己文書化したい場合"
+    - "DDD で集約の境界を明確にしたい場合"
+
+  when_not_to_use:
+    - "単一の集約しかない小規模プロジェクト"
+    - "外部APIとの互換性で Guid を強制される場合"
+
+  common_mistakes:
+    - mistake: "Guid.Empty を許可する"
+      solution: "必要に応じてコンストラクタで Guid.Empty をチェック"
+      severity: "medium"
+
+    - mistake: "EF Core の変換設定を忘れる"
+      solution: "HasConversion でマッピングを設定"
+      severity: "high"
+
+    - mistake: ".Value プロパティでLINQクエリを書く"
+      solution: "TypedIdインスタンスで比較する"
+      severity: "high"
+
+    - mistake: "ITypedIdを実装しない"
+      solution: "VSA.Kernel.ITypedIdを実装する"
+      severity: "medium"
+
+dependencies:
+  nuget:
+    - name: "VSA.Kernel"
+      version: "1.3.0"
+      required: true
+      note: "ITypedIdはVSA.Kernelに含まれます"
+
+related_patterns:
+  - id: entity-base
+    description: "集約ルートのIDとして使用"
+
+  - id: feature-create-entity
+    description: "エンティティ作成時にTypedIdを使用"
+
+changelog:
+  - version: 1.1.0
+    date: 2025-12-28
+    changes:
+      - "VSA.Framework統合"
+      - "ITypedId参照をVSA.Kernelに変更"
+
+  - version: 1.0.0
+    date: 2025-11-25
+    changes:
+      - "初版リリース"
+
+evidence:
+  implementation_file: "VSA.Kernel/ITypedId.cs"
+  skill_file: ".claude/skills/vsa-kernel.md"

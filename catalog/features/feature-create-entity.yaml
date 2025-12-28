@@ -1,0 +1,306 @@
+id: feature-create-entity
+version: 1.1.0
+name: Create Entity Feature Slice
+category: feature-slice
+intent: エンティティ作成の完全な垂直スライス（Application + UI）
+description: |
+  新規エンティティ作成機能の完全な実装パターン。
+  VSA.Frameworkの基底クラスを使用して、Command、Handler、Validator、Blazor Component を実装します。
+
+scope: vertical-slice
+layers:
+  - application
+  - ui
+
+ai_selection_hints:
+  trigger_phrases:
+    - "を作成する機能"
+    - "を登録できるように"
+    - "の追加フォーム"
+    - "新規.*画面"
+    - ".*を作成"
+    - ".*作成機能"
+
+  confidence_keywords:
+    high:    ["機能", "追加", "画面", "フォーム", "実装"]
+    medium:  ["作る", "できるように", "新規"]
+    low:     ["作成"]
+
+  typical_requests:
+    - "商品を作成する機能を追加してください"
+    - "顧客登録フォームを実装してください"
+    - "タスクの新規作成画面を作ってください"
+
+dependencies:
+  patterns:
+    - validation-behavior
+    - transaction-behavior
+  nuget:
+    - name: "VSA.Kernel"
+      version: "1.3.0"
+      purpose: "AggregateRoot, ITypedId, BoundaryDecision"
+    - name: "VSA.Application"
+      version: "1.3.0"
+      purpose: "ICommand, Result<T>"
+    - name: "VSA.Infrastructure"
+      version: "1.3.0"
+      purpose: "Pipeline Behaviors"
+    - name: "VSA.Handlers"
+      version: "1.3.0"
+      purpose: "CreateEntityHandler<T>"
+    - name: "VSA.Blazor"
+      version: "1.3.0"
+      purpose: "FormPageBase<T>"
+    - name: "FluentValidation"
+      version: "^12.0.0"
+
+file_structure: |
+  src/Domain/{BoundedContext}/
+  ├── {Entity}Id.cs                   # 型付きID (VSA.Kernel.ITypedId)
+  └── {Entity}.cs                     # 集約ルート (VSA.Kernel.AggregateRoot<T>)
+
+  src/Application/Features/Create{Entity}/
+  ├── Create{Entity}Command.cs        # Command (VSA.Application.ICommand<T>)
+  ├── Create{Entity}Handler.cs        # Handler (VSA.Handlers.CreateEntityHandler<T>)
+  └── Create{Entity}Validator.cs      # FluentValidation
+
+  src/UI.Blazor/Features/Create{Entity}/
+  └── Create{Entity}.razor            # Blazor Page (VSA.Blazor.FormPageBase<T>)
+
+implementation:
+  # ===== Domain Layer =====
+  typed_id:
+    file_path: "src/Domain/{BoundedContext}/{Entity}Id.cs"
+    template: |
+      using VSA.Kernel;
+
+      namespace Domain.{BoundedContext};
+
+      /// <summary>
+      /// {Entity}の型付きID
+      /// </summary>
+      public readonly record struct {Entity}Id(Guid Value) : ITypedId
+      {
+          public static {Entity}Id New() => new(Guid.NewGuid());
+          public static {Entity}Id From(Guid value) => new(value);
+      }
+
+  entity:
+    file_path: "src/Domain/{BoundedContext}/{Entity}.cs"
+    template: |
+      using VSA.Kernel;
+
+      namespace Domain.{BoundedContext};
+
+      /// <summary>
+      /// {Entity}集約ルート
+      /// </summary>
+      public sealed class {Entity} : AggregateRoot<{Entity}Id>
+      {
+          public string Name { get; private set; } = default!;
+          public string? Description { get; private set; }
+
+          private {Entity}() { } // EF Core用
+
+          public static {Entity} Create({Entity}Id id, string name, string? description = null)
+          {
+              return new {Entity}
+              {
+                  Id = id,
+                  Name = name,
+                  Description = description
+              };
+          }
+
+          public BoundaryDecision CanUpdate()
+          {
+              // ビジネスルールに基づく判定
+              return BoundaryDecision.Allow();
+          }
+
+          public BoundaryDecision CanDelete()
+          {
+              // ビジネスルールに基づく判定
+              return BoundaryDecision.Allow();
+          }
+      }
+
+  # ===== Application Layer =====
+  command:
+    file_path: "src/Application/Features/Create{Entity}/Create{Entity}Command.cs"
+    template: |
+      using VSA.Application;
+      using VSA.Application.Interfaces;
+      using Domain.{BoundedContext};
+
+      namespace Application.Features.Create{Entity};
+
+      /// <summary>
+      /// {Entity}作成Command
+      /// </summary>
+      public sealed record Create{Entity}Command(
+          string Name,
+          string? Description
+      ) : ICommand<Result<{Entity}Id>>;
+
+  handler:
+    file_path: "src/Application/Features/Create{Entity}/Create{Entity}Handler.cs"
+    template: |
+      using Microsoft.Extensions.Logging;
+      using VSA.Application;
+      using VSA.Handlers.Abstractions;
+      using VSA.Handlers.Commands;
+      using Domain.{BoundedContext};
+
+      namespace Application.Features.Create{Entity};
+
+      /// <summary>
+      /// {Entity}作成Handler（VSA.Handlers.CreateEntityHandler を継承）
+      /// </summary>
+      public sealed class Create{Entity}Handler
+          : CreateEntityHandler<Create{Entity}Command, {Entity}, {Entity}Id>
+      {
+          public Create{Entity}Handler(
+              IRepository<{Entity}, {Entity}Id> repository,
+              ILogger<Create{Entity}Handler> logger)
+              : base(repository, logger)
+          {
+          }
+
+          protected override {Entity} CreateEntity(Create{Entity}Command command)
+          {
+              var id = {Entity}Id.New();
+              return {Entity}.Create(id, command.Name, command.Description);
+          }
+      }
+
+  validator:
+    file_path: "src/Application/Features/Create{Entity}/Create{Entity}Validator.cs"
+    template: |
+      using FluentValidation;
+
+      namespace Application.Features.Create{Entity};
+
+      /// <summary>
+      /// {Entity}作成Validator
+      /// </summary>
+      public sealed class Create{Entity}Validator : AbstractValidator<Create{Entity}Command>
+      {
+          public Create{Entity}Validator()
+          {
+              RuleFor(x => x.Name)
+                  .NotEmpty().WithMessage("{Entity}名は必須です")
+                  .MaximumLength(200).WithMessage("{Entity}名は200文字以内で入力してください");
+
+              RuleFor(x => x.Description)
+                  .MaximumLength(2000).WithMessage("説明は2000文字以内で入力してください");
+          }
+      }
+
+  # ===== UI Layer =====
+  blazor_page:
+    file_path: "src/UI.Blazor/Features/Create{Entity}/Create{Entity}.razor"
+    template: |
+      @page "/{entity}s/create"
+      @inherits FormPageBase<Create{Entity}Command, {Entity}Id>
+
+      <h1>新規{Entity}作成</h1>
+
+      @if (Loading)
+      {
+          <p>送信中...</p>
+      }
+      else
+      {
+          <EditForm Model="@Command" OnValidSubmit="@SubmitAsync">
+              <DataAnnotationsValidator />
+              <ValidationSummary />
+
+              <div>
+                  <label>名前</label>
+                  <InputText @bind-Value="Command.Name" />
+              </div>
+
+              <div>
+                  <label>説明</label>
+                  <InputTextArea @bind-Value="Command.Description" />
+              </div>
+
+              <button type="submit" disabled="@Loading">作成</button>
+          </EditForm>
+      }
+
+      @if (Error is not null)
+      {
+          <p style="color: red;">@Error</p>
+      }
+
+      @code {
+          private Create{Entity}Command Command { get; set; } = new("", null);
+
+          protected override Create{Entity}Command CreateCommand() => Command;
+
+          protected override string? SuccessMessage => "{Entity}を作成しました";
+          protected override string? SuccessNavigateTo => "/{entity}s";
+      }
+
+example_usage: |
+  // VSA.Handlersの汎用ハンドラーを継承
+  public sealed class CreateProductHandler
+      : CreateEntityHandler<CreateProductCommand, Product, ProductId>
+  {
+      protected override Product CreateEntity(CreateProductCommand command)
+      {
+          return Product.Create(ProductId.New(), command.Name);
+      }
+  }
+
+  // VSA.Blazorの基底クラスを継承
+  @inherits FormPageBase<CreateProductCommand, ProductId>
+
+ai_guidance:
+  when_to_use:
+    - "新規エンティティの作成機能を追加する場合"
+    - "登録フォームを実装する場合"
+    - "VSA.Frameworkの汎用ハンドラーを活用したい場合"
+
+  when_not_to_use:
+    - "既存エンティティの更新 → feature-update-entity を使用"
+    - "削除機能 → feature-delete-entity を使用"
+    - "検索機能 → feature-search-entity を使用"
+
+  implementation_steps:
+    - step: 1
+      description: "Domain層に型付きIDとEntityを作成"
+      files: ["{Entity}Id.cs", "{Entity}.cs"]
+
+    - step: 2
+      description: "Application層にCommand + Handler + Validatorを作成"
+      files: ["Create{Entity}Command.cs", "Create{Entity}Handler.cs", "Create{Entity}Validator.cs"]
+
+    - step: 3
+      description: "UI層にBlazor Pageを作成"
+      files: ["Create{Entity}.razor"]
+
+  common_mistakes:
+    - mistake: "VSA.Handlersの基底クラスを使わずに毎回フルスクラッチで書く"
+      solution: "CreateEntityHandler<T>を継承して、CreateEntity()メソッドのみオーバーライド"
+
+    - mistake: "Handler内でSaveChangesAsync()を呼ぶ"
+      solution: "TransactionBehaviorが自動でSaveChangesAsyncを呼ぶため不要"
+
+    - mistake: "ITypedIdを実装せずにGuidを直接使う"
+      solution: "VSA.KernelのITypedIdを実装して型安全なIDを使用"
+
+changelog:
+  - version: 1.1.0
+    date: 2025-12-28
+    changes:
+      - "VSA.Framework統合"
+      - "NuGetパッケージ参照に変更"
+      - "汎用ハンドラー使用を推奨"
+
+  - version: 1.0.0
+    date: 2025-11-05
+    changes:
+      - "初版リリース"

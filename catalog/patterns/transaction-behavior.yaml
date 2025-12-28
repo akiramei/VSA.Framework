@@ -1,0 +1,165 @@
+id: transaction-behavior
+version: 1.4.0
+name: TransactionBehavior
+category: pipeline-behavior
+intent: Command を単一トランザクションで実行し、成功時にSaveChangesAsyncを自動呼び出し
+order_hint: 400
+description: |
+  ICommand を実装したリクエストを単一トランザクション内で実行します。
+  Handler 内で例外が発生した場合は自動的にロールバックされます。
+  VSA.Infrastructure パッケージで提供されます。
+
+nuget_package: VSA.Infrastructure
+
+wiring:
+  service_registrations:
+    - registration: "services.AddVsaFramework(assembly)"
+      note: "VSA.Infrastructureの拡張メソッドで自動登録"
+    - registration: "services.AddVsaBehaviors()"
+      note: "Behaviorsのみを個別登録する場合"
+  dependencies:
+    nuget:
+      - name: "VSA.Infrastructure"
+        version: "1.3.0"
+        required: true
+        note: "TransactionBehaviorはVSA.Infrastructureに含まれます"
+      - name: "Microsoft.EntityFrameworkCore"
+        version: "^9.0.0"
+        required: true
+      - name: "MediatR"
+        version: "^12.0.0"
+        required: true
+
+  lifetime_rules:
+    - rule: "DbContextに依存するサービスはScopedで登録"
+      reason: "DbContextがScopedなので、依存するサービスもScopedにしないとDIエラー"
+
+preconditions:
+  - "VSA.Infrastructure NuGetパッケージがインストールされている"
+  - "DbContext が DbContext を継承している"
+  - "すべての Command が ICommand を実装している"
+
+applicability:
+  required_characteristics:
+    - op:mutates-state
+  always_apply_when:
+    - op:single-transaction
+  conflicts_with:
+    - op:read-only
+  reason: "状態変更には必ずトランザクション管理が必要"
+
+implementation:
+  file_path: "VSA.Infrastructure内で提供（自分で実装不要）"
+  namespace: "VSA.Infrastructure.Behaviors"
+  template: |
+    // VSA.Infrastructure.Behaviors.TransactionBehavior<TRequest, TResponse>
+    //
+    // 以下の機能を提供:
+    // - Command用のトランザクション管理
+    // - 成功時は自動でSaveChangesAsync + Commit
+    // - 失敗時・例外時は自動でRollback
+    // - ネストトランザクションの回避
+    //
+    // 使用方法:
+    // services.AddVsaFramework(assembly);
+    // または
+    // services.AddVsaBehaviors(options => { options.EnableTransaction = true; });
+
+example_usage: |
+  // Handler内でSaveChangesAsyncは不要！
+  // TransactionBehaviorが自動実行します
+
+  public sealed class CreateProductHandler
+      : CreateEntityHandler<CreateProductCommand, Product, ProductId>
+  {
+      protected override Product CreateEntity(CreateProductCommand command)
+      {
+          var id = ProductId.New();
+          return Product.Create(id, command.Name, command.Description);
+      }
+
+      // SaveChangesAsyncを呼ばない！
+      // TransactionBehaviorが自動でSaveChangesAsync + Commitする
+  }
+
+tests:
+  - name: "例外発生時にロールバックされる"
+    given: "Handler 内で例外が発生"
+    when: "Command を実行"
+    then: "データベースへの変更がロールバックされる"
+
+  - name: "Query にはトランザクションが適用されない"
+    given: "IQuery を実装したリクエスト"
+    when: "Query を実行"
+    then: "TransactionBehavior がスキップされる"
+
+  - name: "正常終了時にコミットされる"
+    given: "Handler が正常終了（Result.Success）"
+    when: "Command を実行"
+    then: "データベースへの変更がコミットされる"
+
+  - name: "Result.Fail時にロールバックされる"
+    given: "HandlerがResult.Failを返す"
+    when: "Command を実行"
+    then: "データベースへの変更がロールバックされる"
+
+metrics:
+  performance_impact: "中 (トランザクション開始/コミット: 5-10ms)"
+  execution_order: 400
+
+must_read_checklist:
+  description: |
+    実装前に必ず確認し、引用すること。
+  items:
+    - "Handler 内で SaveChangesAsync を呼ばない（TransactionBehavior が自動実行）"
+    - "独自の BeginTransaction/Commit は不要（TransactionBehavior に任せる）"
+    - "Query に ICommand を実装しない（IQuery を使う）"
+    - "Result.Fail 時はロールバックされる"
+    - "DbContext に依存するサービスは Scoped で登録する"
+
+ai_guidance:
+  when_to_use:
+    - "データベースへの書き込みを伴う Command"
+    - "複数テーブルへの変更を原子性を保って実行したい場合"
+    - "エラー時に自動ロールバックさせたい場合"
+
+  when_not_to_use:
+    - "Query (読み取り専用操作)"
+    - "外部API呼び出しのみの処理"
+    - "ファイルシステム操作"
+
+  common_mistakes:
+    - mistake: "Handler 内で SaveChangesAsync を呼び出す"
+      description: "TransactionBehaviorがパイプラインで自動的にSaveChangesAsyncを呼ぶ"
+      solution: "Handler内でSaveChangesAsyncを呼ばない。TransactionBehaviorに任せる"
+      severity: "critical"
+
+    - mistake: "ネストしたトランザクションを開始しようとする"
+      solution: "TransactionBehaviorに任せる。独自のBeginTransactionは不要"
+      severity: "medium"
+
+    - mistake: "Query に ICommand を実装する"
+      description: "ICommandを実装するとTransactionBehaviorが動作してしまう"
+      solution: "Query は IQuery、Command は ICommand を実装する"
+      severity: "high"
+
+    - mistake: "Singleton/Scoped混在によるDIエラー"
+      description: "DbContext(Scoped)に依存するサービスをSingletonで登録するとDIエラー"
+      solution: "TransactionBehavior、DbContext、RepositoryはすべてScopedで登録"
+      severity: "high"
+
+changelog:
+  - version: 1.4.0
+    date: 2025-12-28
+    changes:
+      - "VSA.Framework統合"
+      - "NuGetパッケージ参照に変更"
+
+  - version: 2.0.0
+    date: 2025-11-05
+    changes:
+      - "ネストしたトランザクションのチェック機能追加"
+
+evidence:
+  implementation_file: "VSA.Infrastructure/Behaviors/TransactionBehavior.cs"
+  skill_file: ".claude/skills/vsa-infrastructure.md"

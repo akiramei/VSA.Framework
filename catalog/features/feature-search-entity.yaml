@@ -1,0 +1,273 @@
+id: feature-search-entity
+version: 1.1.0
+name: Search Entity Feature Slice
+category: feature-slice
+intent: エンティティ検索・フィルタリング・ページングの完全な垂直スライス
+description: |
+  検索・フィルタリング・ページング機能の完全な実装パターン。
+  VSA.Frameworkの基底クラスを使用して、Query、Handler、Blazor Component を実装します。
+
+scope: vertical-slice
+layers:
+  - application
+  - ui
+
+ai_selection_hints:
+  trigger_phrases:
+    - "を検索"
+    - "検索機能"
+    - "一覧.*表示"
+    - "フィルタリング"
+    - "絞り込み"
+    - "ページング"
+
+  confidence_keywords:
+    high:    ["検索", "一覧", "フィルタ", "ページング"]
+    medium:  ["探す", "見つける", "表示"]
+    low:     ["リスト"]
+
+  typical_requests:
+    - "商品を検索する機能を追加してください"
+    - "タスク一覧を表示する画面を実装してください"
+    - "顧客をフィルタリングできるようにしてください"
+
+dependencies:
+  patterns:
+    - caching-behavior
+  nuget:
+    - name: "VSA.Application"
+      version: "1.3.0"
+      purpose: "IQuery, Result<T>, PagedResult<T>"
+    - name: "VSA.Infrastructure"
+      version: "1.3.0"
+      purpose: "CachingBehavior"
+    - name: "VSA.Handlers"
+      version: "1.3.0"
+      purpose: "GetListQueryHandler<T>"
+    - name: "VSA.Blazor"
+      version: "1.3.0"
+      purpose: "ListPageBase<T>"
+
+file_structure: |
+  src/Application/Features/Search{Entity}s/
+  ├── Search{Entity}sQuery.cs           # Query (VSA.Application.IQuery<T>)
+  ├── Search{Entity}sHandler.cs         # Handler (VSA.Handlers)
+  └── {Entity}Dto.cs                    # DTO
+
+  src/UI.Blazor/Features/{Entity}s/
+  └── {Entity}List.razor                # Blazor Page (VSA.Blazor.ListPageBase<T>)
+
+implementation:
+  # ===== Application Layer =====
+  query:
+    file_path: "src/Application/Features/Search{Entity}s/Search{Entity}sQuery.cs"
+    template: |
+      using VSA.Application;
+      using VSA.Application.Interfaces;
+
+      namespace Application.Features.Search{Entity}s;
+
+      /// <summary>
+      /// {Entity}検索Query
+      /// </summary>
+      public sealed record Search{Entity}sQuery(
+          string? NameFilter = null,
+          int Page = 1,
+          int PageSize = 20,
+          string OrderBy = "CreatedAt",
+          bool IsDescending = true
+      ) : IQuery<Result<PagedResult<{Entity}Dto>>>, ICacheableQuery
+      {
+          public string GetCacheKey() =>
+              $"{entity}-search-{NameFilter}-{Page}-{PageSize}-{OrderBy}-{IsDescending}";
+          public int CacheDurationMinutes => 2;
+      }
+
+  dto:
+    file_path: "src/Application/Features/Search{Entity}s/{Entity}Dto.cs"
+    template: |
+      namespace Application.Features.Search{Entity}s;
+
+      /// <summary>
+      /// {Entity}一覧用DTO
+      /// </summary>
+      public sealed record {Entity}Dto(
+          Guid Id,
+          string Name,
+          string? Description,
+          DateTime CreatedAt
+      );
+
+  handler:
+    file_path: "src/Application/Features/Search{Entity}s/Search{Entity}sHandler.cs"
+    template: |
+      using Microsoft.EntityFrameworkCore;
+      using VSA.Application;
+      using MediatR;
+
+      namespace Application.Features.Search{Entity}s;
+
+      /// <summary>
+      /// {Entity}検索Handler
+      /// </summary>
+      public sealed class Search{Entity}sHandler
+          : IRequestHandler<Search{Entity}sQuery, Result<PagedResult<{Entity}Dto>>>
+      {
+          private readonly ApplicationDbContext _context;
+
+          public Search{Entity}sHandler(ApplicationDbContext context)
+          {
+              _context = context;
+          }
+
+          public async Task<Result<PagedResult<{Entity}Dto>>> Handle(
+              Search{Entity}sQuery query,
+              CancellationToken cancellationToken)
+          {
+              var queryable = _context.{Entity}s
+                  .AsNoTracking()
+                  .Where(x => !x.IsDeleted);
+
+              // フィルタリング
+              if (!string.IsNullOrEmpty(query.NameFilter))
+              {
+                  queryable = queryable.Where(x => x.Name.Contains(query.NameFilter));
+              }
+
+              // 件数取得
+              var totalCount = await queryable.CountAsync(cancellationToken);
+
+              // ソート
+              queryable = query.IsDescending
+                  ? queryable.OrderByDescending(x => EF.Property<object>(x, query.OrderBy))
+                  : queryable.OrderBy(x => EF.Property<object>(x, query.OrderBy));
+
+              // ページング
+              var items = await queryable
+                  .Skip((query.Page - 1) * query.PageSize)
+                  .Take(query.PageSize)
+                  .Select(x => new {Entity}Dto(
+                      x.Id.Value,
+                      x.Name,
+                      x.Description,
+                      x.CreatedAt))
+                  .ToListAsync(cancellationToken);
+
+              var result = new PagedResult<{Entity}Dto>(
+                  items,
+                  totalCount,
+                  query.Page,
+                  query.PageSize);
+
+              return Result.Success(result);
+          }
+      }
+
+  # ===== UI Layer =====
+  blazor_page:
+    file_path: "src/UI.Blazor/Features/{Entity}s/{Entity}List.razor"
+    template: |
+      @page "/{entity}s"
+      @inherits ListPageBase<Search{Entity}sQuery, {Entity}Dto>
+
+      <h1>{Entity}一覧</h1>
+
+      <div class="search-form">
+          <input type="text" @bind="NameFilter" placeholder="名前で検索..." />
+          <button @onclick="SearchAsync">検索</button>
+      </div>
+
+      @if (Loading)
+      {
+          <p>読み込み中...</p>
+      }
+      else if (HasItems)
+      {
+          <table>
+              <thead>
+                  <tr>
+                      <th>名前</th>
+                      <th>説明</th>
+                      <th>作成日</th>
+                      <th>操作</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  @foreach (var item in Items)
+                  {
+                      <tr>
+                          <td>@item.Name</td>
+                          <td>@item.Description</td>
+                          <td>@item.CreatedAt.ToString("yyyy/MM/dd")</td>
+                          <td>
+                              <a href="/{entity}s/@item.Id/edit">編集</a>
+                          </td>
+                      </tr>
+                  }
+              </tbody>
+          </table>
+
+          <Pagination CurrentPage="@CurrentPage"
+                      TotalPages="@TotalPages"
+                      OnPageChanged="GoToPageAsync" />
+      }
+      else
+      {
+          <p>{Entity}がありません</p>
+      }
+
+      @code {
+          private string? NameFilter { get; set; }
+
+          protected override Search{Entity}sQuery CreateQuery()
+              => new Search{Entity}sQuery(
+                  NameFilter: NameFilter,
+                  Page: CurrentPage,
+                  PageSize: PageSize);
+      }
+
+ai_guidance:
+  when_to_use:
+    - "検索機能を追加する場合"
+    - "データ一覧画面にフィルタリングが必要な場合"
+    - "大量データをページング表示する場合"
+
+  when_not_to_use:
+    - "新規作成 → feature-create-entity を使用"
+    - "更新・編集 → feature-update-entity を使用"
+    - "削除機能 → feature-delete-entity を使用"
+
+  implementation_steps:
+    - step: 1
+      description: "Application層にQuery + DTO + Handlerを作成"
+      files: ["Search{Entity}sQuery.cs", "{Entity}Dto.cs", "Search{Entity}sHandler.cs"]
+
+    - step: 2
+      description: "UI層にBlazor Pageを作成"
+      files: ["{Entity}List.razor"]
+
+  common_mistakes:
+    - mistake: "SQLインジェクション対策を忘れる"
+      solution: "EF CoreのLINQまたはDapperのパラメータを使用する"
+
+    - mistake: "全件取得してからメモリでフィルタリング"
+      solution: "SQLのWHERE句でフィルタリングする"
+
+    - mistake: "AsNoTrackingを忘れる"
+      solution: "読み取り専用Queryでは必ずAsNoTracking()を使用"
+
+    - mistake: "キャッシュキーが適切でない"
+      solution: "すべての検索条件をキャッシュキーに含める"
+
+changelog:
+  - version: 1.1.0
+    date: 2025-12-28
+    changes:
+      - "VSA.Framework統合"
+      - "NuGetパッケージ参照に変更"
+      - "ListPageBase使用を推奨"
+
+  - version: 1.0.0
+    date: 2025-11-05
+    changes:
+      - "初版リリース"

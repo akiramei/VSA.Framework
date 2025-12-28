@@ -1,6 +1,46 @@
 # VSA.Framework
 
-.NET 9向けのVertical Slice Architecture (VSA) フレームワーク。DDD + CQRS + MediatRパターンを提供し、AI開発支援のためのSkillsを含みます。
+.NET 9向けのVertical Slice Architecture (VSA) フレームワーク。DDD + CQRS + MediatRパターンを提供し、AI駆動開発のためのパターンカタログとSkillsを含みます。
+
+## カタログ駆動AI開発
+
+VSA.Frameworkは **パターンカタログ** を同梱しており、AIエージェント（Claude Code等）が一貫性のあるコードを生成できます。
+
+```
+VSA.Framework/
+├── src/                    # NuGetパッケージ群
+├── catalog/                # パターンカタログ（AI参照用）
+│   ├── index.json          # パターン索引
+│   ├── patterns/           # Pipeline Behaviors, Domain Patterns
+│   ├── features/           # Feature Slices (CRUD)
+│   └── AI_USAGE_GUIDE.md   # AI向けガイド
+├── workpacks/              # ステートレスAI駆動開発
+└── starters/               # スターターキット
+    └── VSA.StarterKit/     # TaskManagement サンプル
+```
+
+### クイックスタート
+
+```bash
+# スターターキットをコピー
+cp -r starters/VSA.StarterKit your-project
+
+# NuGetパッケージをインストール
+dotnet add package VSA.Kernel
+dotnet add package VSA.Application
+dotnet add package VSA.Infrastructure
+```
+
+### AIエージェントへの指示例
+
+```
+このプロジェクトには catalog/ ディレクトリにパターンカタログがあります。
+新機能を実装する際は:
+1. catalog/index.json を読み込み、適切なパターンを検索
+2. 該当パターンの YAML ファイルを読み込み
+3. VSA.Framework の基底クラスを継承
+4. catalog/COMMON_MISTAKES.md を確認
+```
 
 ## パッケージ
 

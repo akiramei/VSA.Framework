@@ -1,0 +1,140 @@
+id: validation-behavior
+version: 1.4.0
+name: ValidationBehavior
+category: pipeline-behavior
+intent: FluentValidation による入力検証を MediatR パイプラインで自動実行
+order_hint: 100
+description: |
+  Command/Query の実行前に FluentValidation を使用して入力検証を行います。
+  検証エラーがある場合は Result.Fail を返し、処理を中断します。
+  VSA.Infrastructure パッケージで提供されます。
+
+nuget_package: VSA.Infrastructure
+
+wiring:
+  service_registrations:
+    - registration: "services.AddVsaFramework(assembly)"
+      note: "VSA.Infrastructureの拡張メソッドで自動登録"
+    - registration: "services.AddVsaBehaviors()"
+      note: "Behaviorsのみを個別登録する場合"
+  dependencies:
+    nuget:
+      - name: "VSA.Infrastructure"
+        version: "1.3.0"
+        required: true
+        note: "ValidationBehaviorはVSA.Infrastructureに含まれます"
+      - name: "FluentValidation"
+        version: "^12.0.0"
+        required: true
+      - name: "FluentValidation.DependencyInjectionExtensions"
+        version: "^12.0.0"
+        required: true
+    assembly_scanner:
+      - "services.AddVsaValidation(Assembly.GetExecutingAssembly())"
+
+preconditions:
+  - "VSA.Infrastructure NuGetパッケージがインストールされている"
+  - "FluentValidation がインストールされている"
+  - "Validator クラスが AbstractValidator<T> を継承している"
+
+applicability:
+  always_apply: true
+  reason: "入力検証は全てのCommand/Queryで必要"
+
+implementation:
+  file_path: "VSA.Infrastructure内で提供（自分で実装不要）"
+  namespace: "VSA.Infrastructure.Behaviors"
+  template: |
+    // VSA.Infrastructure.Behaviors.ValidationBehavior<TRequest, TResponse>
+    //
+    // 以下の機能を提供:
+    // - FluentValidation による自動検証
+    // - 検証エラー時は Result.Fail を返す
+    // - Validatorがない場合はスキップ
+    //
+    // 使用方法:
+    // services.AddVsaFramework(assembly);
+    // または
+    // services.AddVsaBehaviors(options => { options.EnableValidation = true; });
+
+example_usage: |
+  // 1. Validator の定義
+  public sealed class CreateProductValidator : AbstractValidator<CreateProductCommand>
+  {
+      public CreateProductValidator()
+      {
+          RuleFor(x => x.Name)
+              .NotEmpty().WithMessage("商品名は必須です")
+              .MaximumLength(200).WithMessage("商品名は200文字以内です");
+      }
+  }
+
+  // 2. DI登録（Program.cs）
+  services.AddVsaFramework(typeof(Program).Assembly);
+  // または
+  services.AddVsaValidation(typeof(Program).Assembly);
+
+  // 3. Command 実装（Validator が自動実行される）
+  public sealed record CreateProductCommand(
+      string Name,
+      string Description
+  ) : ICommand<Result<Guid>>;
+
+tests:
+  - name: "未入力で検証エラーが返される"
+    given: "Name が空文字列"
+    when: "CreateProductCommand を実行"
+    then: "Result.IsSuccess == false かつ エラーメッセージに '商品名は必須です' が含まれる"
+
+  - name: "正常な入力で次の処理に進む"
+    given: "すべてのフィールドが正常"
+    when: "CreateProductCommand を実行"
+    then: "Handler が実行され、Result.IsSuccess == true"
+
+metrics:
+  performance_impact: "低 (通常 1-5ms)"
+  execution_order: 100
+
+ai_guidance:
+  when_to_use:
+    - "Command の入力検証が必要な場合"
+    - "Query のパラメータ検証が必要な場合"
+    - "複雑な検証ルール（複数フィールドの相関チェック）を実装したい場合"
+
+  when_not_to_use:
+    - "ドメインロジック内のビジネスルール検証（Entity.CanXxx() に実装）"
+    - "DBアクセスを伴う検証（Handler内で実装）"
+    - "認可チェック（AuthorizationBehaviorを使用）"
+
+  common_mistakes:
+    - mistake: "Validator を DI 登録し忘れる"
+      solution: "services.AddVsaValidation(assembly) または services.AddVsaFramework(assembly) を呼び出す"
+      severity: "high"
+
+    - mistake: "FluentValidation内でDBアクセスする"
+      solution: "FluentValidationは形式検証のみ。DBアクセスを伴う検証はHandler内で実施"
+      severity: "high"
+
+    - mistake: "Result型以外の戻り値を使う"
+      solution: "すべての Command/Query は Result または Result<T> を返す（VSA.Application）"
+      severity: "high"
+
+    - mistake: "VSA.Infrastructureを使わず独自実装する"
+      solution: "VSA.Infrastructureパッケージに含まれるValidationBehaviorを使用"
+      severity: "medium"
+
+changelog:
+  - version: 1.4.0
+    date: 2025-12-28
+    changes:
+      - "VSA.Framework統合"
+      - "NuGetパッケージ参照に変更"
+
+  - version: 1.3.0
+    date: 2025-11-05
+    changes:
+      - "Result 型への対応を強化"
+
+evidence:
+  implementation_file: "VSA.Infrastructure/Behaviors/ValidationBehavior.cs"
+  skill_file: ".claude/skills/vsa-infrastructure.md"

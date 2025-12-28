@@ -1,0 +1,147 @@
+id: entity-base
+version: 1.1.0
+name: Entity Base Class (DDD Foundation)
+category: kernel
+intent: 識別子による同一性を持つエンティティの基底クラス。VSA.Kernelで提供。
+
+description: |
+  Entityは、DDDにおけるエンティティの基底クラスです。
+  VSA.Kernel NuGetパッケージで提供されます。
+
+  【Entity vs ValueObject】
+  - Entity: 識別子（ID）による同一性。属性が変わっても同一エンティティ。
+  - ValueObject: 値による同一性。すべての属性が同じなら同一。
+
+  【Entityの特徴】
+  - 識別子を持つ（ID）
+  - ライフサイクルがある（作成→更新→削除）
+  - ドメインイベントを発行できる
+  - 集約ルートになる場合は AggregateRoot を継承
+
+nuget_package: VSA.Kernel
+
+applicability:
+  always_apply: true
+  reason: "DDDでエンティティを使用する際の基盤パターン"
+
+implementation:
+  file_path: "VSA.Kernel内で提供（自分で実装不要）"
+  namespace: "VSA.Kernel"
+  template: |
+    // VSA.Kernel で提供される基底クラス
+    //
+    // Entity: 識別子を持つドメインオブジェクト
+    // Entity<TId>: 型付きIDを持つエンティティ
+    // AggregateRoot<TId>: 集約ルート
+    //
+    // 使用方法:
+    // using VSA.Kernel;
+    // public class Product : AggregateRoot<ProductId> { ... }
+
+example_usage: |
+  using VSA.Kernel;
+
+  // 型付きID（ITypedIdを実装）
+  public readonly record struct ProductId(Guid Value) : ITypedId
+  {
+      public static ProductId New() => new(Guid.NewGuid());
+      public static ProductId From(Guid value) => new(value);
+  }
+
+  // 集約ルート（AggregateRootを継承）
+  public sealed class Product : AggregateRoot<ProductId>
+  {
+      public string Name { get; private set; } = default!;
+      public ProductStatus Status { get; private set; }
+
+      private Product() { }  // EF Core用
+
+      public static Product Create(ProductId id, string name)
+      {
+          return new Product
+          {
+              Id = id,
+              Name = name,
+              Status = ProductStatus.Draft
+          };
+      }
+
+      // Boundaryメソッド: 操作可否判定
+      public BoundaryDecision CanPublish()
+      {
+          return Status switch
+          {
+              ProductStatus.Draft => BoundaryDecision.Allow(),
+              ProductStatus.Published => BoundaryDecision.Deny("既に公開済みです"),
+              _ => BoundaryDecision.Deny("公開できない状態です")
+          };
+      }
+
+      public void Publish()
+      {
+          var decision = CanPublish();
+          if (!decision.IsAllowed)
+              throw new InvalidOperationException(decision.Reason);
+
+          Status = ProductStatus.Published;
+      }
+  }
+
+ai_guidance:
+  when_to_use:
+    - "識別子を持つドメインオブジェクトを作成する場合"
+    - "ライフサイクル（作成→更新→削除）があるオブジェクト"
+    - "ドメインイベントを発行する必要がある場合"
+
+  when_not_to_use:
+    - "識別子が不要な場合 → ValueObject を使用"
+
+  common_mistakes:
+    - mistake: "publicセッターを持つ"
+      severity: critical
+      solution: "セッターは private に。変更は意味のあるメソッド経由で行う"
+
+    - mistake: "publicコンストラクタで直接インスタンス化"
+      severity: high
+      solution: "privateコンストラクタ + static Create メソッドで不変条件を検証"
+
+    - mistake: "ビジネスロジックをHandler内に書く"
+      severity: critical
+      solution: "ビジネスロジックはEntity内のメソッドに実装"
+
+    - mistake: "VSA.Kernelを使わずに独自のEntity基底クラスを作る"
+      severity: high
+      solution: "VSA.Kernel.AggregateRoot<TId>を使用"
+
+dependencies:
+  nuget:
+    - name: "VSA.Kernel"
+      version: "1.3.0"
+      required: true
+
+related_patterns:
+  - id: domain-typed-id
+    description: "型安全なID（Entityの識別子として使用）"
+
+  - id: boundary-pattern
+    description: "Entity.CanXxx() メソッドとBoundaryDecision"
+
+  - id: result-pattern
+    description: "エラーハンドリング"
+
+changelog:
+  - version: 1.1.0
+    date: 2025-12-28
+    changes:
+      - "VSA.Framework統合"
+      - "NuGetパッケージ参照に変更"
+
+  - version: 1.0.0
+    date: 2025-11-27
+    changes:
+      - "初版リリース"
+
+evidence:
+  implementation_file: "VSA.Kernel/Entity.cs"
+  aggregate_root_file: "VSA.Kernel/AggregateRoot.cs"
+  skill_file: ".claude/skills/vsa-kernel.md"
